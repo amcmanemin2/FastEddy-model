@@ -733,10 +733,23 @@ __global__ void cudaDevice_hydroCoreCommence(int simTime_it, float* hydroFlds_d,
      cudaDevice_surfaceVarBdyBCs(0, timeWeight, tskin_d, SURFBdyPlanes_d, SURFBdyPlanesNext_d);
    }
 
-   // Re-initialization to zero of Frhs for for Auxiliary Scalar equations
+   // BCs and re-initialization to zero of Frhs for for Auxiliary Scalar equations
    for(iFld=0; iFld < NhydroAuxScalars_d; iFld++){
       fldFrhs = &hydroAuxScalarsFrhs_d[fldStride*iFld];
       cudaDevice_setToZero(fldFrhs);
+      /* Zero-gradient vertical BCs, as already applied to SGSTKE and moisture below. Auxiliary
+         scalars were the only scalar class receiving no vertical BC, so their below-ground and
+         above-ceiling halos stayed at the zero they were memset to at allocation and were never
+         written again (the RK update is guarded to non-halo cells, and MPI exchanges only x/y).
+         cudaDevice_GradScalarToFaces then differenced the lowest interior level against that
+         fictitious zero, cudaDevice_hydroCoreCalcTausScalar turned the result into a downward
+         flux, and cudaDevice_hydroCoreCalcTurbMixingScalar folded it into the divergence --
+         an unbounded spurious sink at both boundaries whenever AuxScSGSturb > 0. Applied
+         unconditionally, outside the hydroBCs branching, so it covers both LAD and periodic
+         configurations. Horizontal halos are deliberately left alone: the non-periodic
+         "flushes out" treatment for auxiliary scalars is intended. */
+      fld = &hydroAuxScalars_d[fldStride*iFld];
+      cudaDevice_VerticalAblZeroGradBCs(fld);
    }//for iFld
 
    // BCs and re-initializations for SGSTKE equations
